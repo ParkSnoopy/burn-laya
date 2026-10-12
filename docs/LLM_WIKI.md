@@ -162,6 +162,23 @@ Previously trained checkpoints retain their recorded reference version; install 
 
 ## Change and verification workflow
 
+### Python linting
+
+Run these commands from the repository root; uvx keeps lint tools separate from the model reference environment.
+
+```bash
+uvx ruff check tools/
+uvx ruff format --check tools/
+uvx --with wemake-python-styleguide flake8 --select=WPS tools/
+```
+
+Ruff uses its defaults, and WPS is selected on the command line.
+The checks target tools/ rather than the passive submodule, model artifacts, build outputs, or local environments.
+The uvx --with option loads wemake-python-styleguide alongside Flake8.
+Use uvx ruff check --fix tools/ and uvx ruff format tools/ for safe automated edits; do not disable rule families or inflate complexity limits merely to make a check pass.
+
+### Implementation checks
+
 1. Identify the owning boundary and its callers using the ownership map; preserve ordered question/option semantics and public imports.
 2. Make the smallest shared change, including directly contradicted documentation and fixture coverage; do not relax production lints or numeric tolerances to hide incompatibility.
 3. After Rust edits, run cargo fmt with [rustfmt.toml](../rustfmt.toml); preserve [Clippy thresholds](../clippy.toml) and the manifest's strict lint policy.

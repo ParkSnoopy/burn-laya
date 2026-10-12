@@ -10,6 +10,7 @@ The Rust runtime does not require Python.
 - [Training workflow](tools/train.py) uses published `laya==0.4.6` and exports each trained checkpoint separately.
 - [Reference workflow](tools/reference.py) validates ONNX output against the selected checkpoint's PyTorch model.
 - [Burn preparation](examples/prepare.rs) deploys the complete weights generated for the selected model directory.
+- [Python checks](docs/LLM_WIKI.md#python-linting) run Ruff and Flake8 with wemake-python-styleguide in isolated uvx environments.
 - The `laya` submodule is a passive parity reference, never a build, training, runtime, or validation dependency.
 
 ## Licensing

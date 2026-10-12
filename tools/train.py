@@ -1,16 +1,18 @@
 """Fine-tune with published Laya, then export and validate the new checkpoint."""
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from reference import ROOT, digest, main as prepare_reference, require_reference
+from reference import ROOT, digest, require_reference
+from reference import main as prepare_reference
 
 
 def main():
     provenance = json.loads((ROOT / "tests/fixtures/checkpoint.json").read_text())
     require_reference(provenance["reference_version"])
-    from laya.train_cli import build_parser, main as train_reference
+    from laya.train_cli import build_parser
+    from laya.train_cli import main as train_reference
 
     parser = build_parser()
     parser.description += " The result is exported to ONNX and checked against PyTorch."
@@ -28,14 +30,26 @@ def main():
     if output.exists() or output.is_relative_to(base) or base.is_relative_to(output):
         parser.error("--out must be a new directory separate from the base checkpoint")
     config = json.loads((base / "rl_agent_config.json").read_text())
-    if config["encoder"] != "answerdotai/ModernBERT-large" or config["head_layers"] != 2:
-        parser.error("training export supports the English ModernBERT-large architecture")
-    if config.get("option_layout", "sequential") != "sequential" or len(config["act_costs"]) != 1:
-        parser.error("training export requires sequential options and two action outputs")
+    if (
+        config["encoder"] != "answerdotai/ModernBERT-large"
+        or config["head_layers"] != 2
+    ):
+        parser.error(
+            "training export supports the English ModernBERT-large architecture"
+        )
+    if (
+        config.get("option_layout", "sequential") != "sequential"
+        or len(config["act_costs"]) != 1
+    ):
+        parser.error(
+            "training export requires sequential options and two action outputs"
+        )
     max_len = args.max_len or config["max_len"]
     head_max_len = args.head_max_len or config["head_max_len"]
     if not 16 <= head_max_len <= max_len <= 512:
-        parser.error("training token budgets must fit the Rust runtime's 512-token limit")
+        parser.error(
+            "training token budgets must fit the Rust runtime's 512-token limit"
+        )
     original = digest(base / "model.safetensors")
     status = train_reference(trainer_args)
     if status:
@@ -55,4 +69,4 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
