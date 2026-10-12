@@ -6,7 +6,8 @@ The Rust runtime does not require Python.
 ## Development contracts
 
 - [Architecture and checkpoint lifecycle](docs/ARCHITECTURE.md) defines supported requests, devices, artifact preparation, and validation.
-- [Training workflow](tools/train.py) uses published `laya==0.4.4` and exports each trained checkpoint separately.
+- [AI-agent guide](docs/LLM_WIKI.md) maps code ownership, invariants, and verification workflows.
+- [Training workflow](tools/train.py) uses published `laya==0.4.6` and exports each trained checkpoint separately.
 - [Reference workflow](tools/reference.py) validates ONNX output against the selected checkpoint's PyTorch model.
 - [Burn preparation](examples/prepare.rs) deploys the complete weights generated for the selected model directory.
 - The `laya` submodule is a passive parity reference, never a build, training, runtime, or validation dependency.

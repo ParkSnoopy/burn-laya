@@ -46,7 +46,7 @@
 - The checkpoint comes from revision 1c5edc17a7acd8701df6fc341c0d179f1c62c982 of convaiinnovations/laya.
 - tests/fixtures/checkpoint.json owns the checkpoint revision, expected weight digest, and published reference version.
 - [tools/reference.py](../tools/reference.py) checks the checkpoint digest and exports the complete model through PyTorch when requested.
-- Preparation and Python parity checks use published laya==0.4.4, never an editable installation from the submodule.
+- Preparation and Python parity checks use published laya==0.4.6, never an editable installation from the submodule.
 - The reference harness rejects imports that resolve inside the submodule before loading Python model code.
 - The harness compares exported outputs against eager FP32 PyTorch before writing fixtures.
 - Reference fixture metadata records package versions and checkpoint provenance. Fixture outputs are precomputed from real weights.
@@ -75,7 +75,7 @@
 
 ## Reference workflow
 
-- Install the published reference into an isolated environment with uv pip install --python .venv/bin/python 'laya[onnx]==0.4.4'.
+- Install the published reference into an isolated environment with uv pip install --python .venv/bin/python 'laya[onnx]==0.4.6'.
 - Run tools/reference.py --export to prepare the ONNX graph and regenerate real checkpoint fixtures.
 - Run tools/reference.py without --export to compare the existing graph against the published reference and regenerate fixtures.
 - Run tools/reference.py --binary target/release/laya-rs to compare the CPU and integrated Vulkan CLI against frozen answers without importing the Python model.
@@ -84,7 +84,9 @@
 
 ## Training workflow
 
-[tools/train.py](../tools/train.py) delegates model training, AdamW updates, calibration, and evaluation to published laya==0.4.4.
+[tools/train.py](../tools/train.py) delegates model training, AdamW updates, calibration, and evaluation to published laya==0.4.6.
+The published trainer retains its existing interface; its calibration implementation groups decisions by option count and bounds the log-temperature search to avoid padding contamination and numerical underflow.
+The supported inference model, token assembly, and answer decoding are unchanged from the previous reference release.
 Burn's ONNX importer emits an inference graph and ignores training dropout; native source-equivalent training requires a separate trainable model port.
 No src/train directory is created for the Python fallback.
 The trainer accepts only local English checkpoints with the supported architecture, sequential layout, and token budgets.

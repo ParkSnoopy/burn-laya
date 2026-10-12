@@ -59,6 +59,7 @@ fn invalid_requests_fail_before_inference() {
         assert!(builder.encode(&request).is_err(), "{value}");
     }
     for value in [
+        r#"{"state":null,"questions":{}}"#,
         r#"{"state":{},"questions":{}}"#,
         r#"{"state":"text","questions":{"x":{"type":"unknown","instructions":"Pick"}}}"#,
         r#"{"state":"text","questions":{"x":{"type":"noul","instructions":"True?","option_order":[1,0]}}}"#,
