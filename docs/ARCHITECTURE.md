@@ -78,7 +78,7 @@
 - Install the published reference into an isolated environment with uv pip install --python .venv/bin/python 'laya[onnx]==0.4.6'.
 - Run tools/reference.py --export to prepare the ONNX graph and regenerate real checkpoint fixtures.
 - Run tools/reference.py without --export to compare the existing graph against the published reference and regenerate fixtures.
-- Run tools/reference.py --binary target/release/laya-rs to compare the CPU and integrated Vulkan CLI against frozen answers without importing the Python model.
+- Run tools/reference.py --binary target/release/laya to compare the CPU and integrated Vulkan CLI against frozen answers without importing the Python model.
 - Pass --model-directory for a trained checkpoint. Its checkpoint.json and reference.json stay beside its weights, separate from the base fixtures.
 - Cargo parity tests consume frozen fixtures and local model artifacts. They do not invoke the Python reference or require an initialized submodule.
 
@@ -106,7 +106,7 @@ LAYA_MODEL_DIR=models/laya-finetuned cargo run --example prepare
 LAYA_MODEL_DIR=models/laya-finetuned cargo test --all-features
 LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
 .venv/bin/python tools/reference.py \
-  --model-directory models/laya-finetuned --binary target/release/laya-rs
+  --model-directory models/laya-finetuned --binary target/release/laya
 ```
 
 Remove --freeze-encoder for a full fine-tune; --loss rlcd selects the upstream default objective.

@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use laya_rs::input::{Batch, InputBuilder, Request, Row};
+use laya::input::{Batch, InputBuilder, Request, Row};
 use serde::Deserialize;
 mod common;
 

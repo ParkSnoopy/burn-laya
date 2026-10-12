@@ -25,7 +25,7 @@ pub fn reference() -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
-pub fn config() -> laya_rs::output::Config {
+pub fn config() -> laya::output::Config {
     serde_json::from_slice(&std::fs::read(model_directory().join("rl_agent_config.json")).unwrap())
         .unwrap()
 }

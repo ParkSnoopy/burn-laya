@@ -4,7 +4,7 @@
     reason = "Invalid fixed fixtures must fail the test immediately."
 )]
 
-use laya_rs::{
+use laya::{
     input::Request,
     output::{Config, decode},
 };

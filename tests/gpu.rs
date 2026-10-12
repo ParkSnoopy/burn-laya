@@ -12,7 +12,7 @@
 use std::time::Instant;
 
 use burn::tensor::{Device, DeviceKind};
-use laya_rs::{
+use laya::{
     Request,
     input::InputBuilder,
     model::{Model, infer},

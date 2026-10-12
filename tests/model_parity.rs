@@ -9,7 +9,7 @@
 )]
 
 use burn::tensor::Device;
-use laya_rs::{
+use laya::{
     input::Batch,
     model::{Model, infer},
 };

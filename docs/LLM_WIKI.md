@@ -1,4 +1,4 @@
-# Laya-rs: AI-agent guide
+# Laya: AI-agent guide
 
 ## Start here
 
@@ -90,7 +90,7 @@ Do not add structured states, parallel layouts, router/shortlist wrappers, other
 
 ## Prepare and run a base checkpoint
 
-Run the following commands from the repository root.
+Run the following commands from the repository root using the explicit Rust binary path, not the published Python CLI also named laya.
 Cargo uses the active PATH toolchain; do not add +stable or another override or install components into a different toolchain as a workaround.
 For a fresh checkout, create the isolated Python environment; reuse an existing .venv instead of recreating it.
 The following setup uses a POSIX shell and CPU-only PyTorch; use a compatible PyTorch build instead when training on CUDA or MPS.
@@ -106,7 +106,7 @@ uv pip install --python .venv/bin/python 'laya[onnx]==0.4.6'
 .venv/bin/python tools/reference.py --export
 cargo run --example prepare
 cargo build --release
-target/release/laya-rs models/laya tests/fixtures/requests.json cpu
+target/release/laya models/laya tests/fixtures/requests.json cpu
 ```
 
 The download revision must agree with the checkpoint manifest; reference preparation rejects a weight digest mismatch before loading the model.
@@ -119,7 +119,7 @@ For Vulkan, build with the optional feature and select the actual adapter kind:
 
 ```bash
 cargo build --release --features vulkan
-target/release/laya-rs models/laya tests/fixtures/requests.json vulkan-integrated
+target/release/laya models/laya tests/fixtures/requests.json vulkan-integrated
 ```
 
 The other GPU selector is vulkan-discrete; neither GPU selector falls back to CPU when its requested adapter is missing.
@@ -143,7 +143,7 @@ LAYA_MODEL_DIR=models/laya-finetuned cargo run --example prepare
 LAYA_MODEL_DIR=models/laya-finetuned cargo test
 LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
 .venv/bin/python tools/reference.py \
-  --model-directory models/laya-finetuned --binary target/release/laya-rs
+  --model-directory models/laya-finetuned --binary target/release/laya
 ```
 
 The final binary comparison needs an available integrated Vulkan GPU; on CPU-only systems, build without vulkan and use the CPU parity tests and CLI.
@@ -176,7 +176,7 @@ cargo test
 cargo test --all-features
 cargo doc --no-deps --all-features
 cargo build --release --features vulkan
-.venv/bin/python tools/reference.py --binary target/release/laya-rs
+.venv/bin/python tools/reference.py --binary target/release/laya
 ```
 
 Run hardware-dependent commands only where an integrated Vulkan GPU is available.
