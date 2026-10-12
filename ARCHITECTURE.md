@@ -21,7 +21,7 @@
 - src/agent.rs loads complete local artifacts and connects preprocessing, inference, and decoding.
 - src/main.rs provides the JSON command-line boundary.
 - build.rs converts the complete ONNX graph into Burn operations and separate Burnpack weights.
-- The laya submodule remains the unchanged Python reference.
+- The laya submodule remains a passive parity reference. No build, runtime, preparation, or validation tool may load its files or depend on it.
 
 ## Core data flow
 
@@ -43,8 +43,10 @@
 ## Artifact lifecycle
 
 - The checkpoint comes from revision 1c5edc17a7acd8701df6fc341c0d179f1c62c982 of convaiinnovations/laya.
-- Its expected weight digest comes from laya/verify/checkpoints.json.
-- tests/reference.py checks the checkpoint digest and invokes the upstream full-model exporter when requested.
+- tests/fixtures/checkpoint.json owns the checkpoint revision, expected weight digest, and published reference version.
+- tests/reference.py checks the checkpoint digest and exports the complete model through PyTorch when requested.
+- Preparation and Python parity checks use published laya==0.4.4, never an editable installation from the submodule.
+- The reference harness rejects imports that resolve inside the submodule before loading Python model code.
 - The harness compares exported outputs against eager FP32 PyTorch before writing fixtures.
 - Reference fixture metadata records package versions and checkpoint provenance. Fixture outputs are precomputed from real weights.
 - Cargo requires models/laya/laya.onnx and its external tensor data before code generation.
@@ -66,6 +68,14 @@
 - Required artifact-dependent tests fail when artifacts are absent. They never substitute initialized weights or skip silently.
 - The optimized test profile makes Flex tensor kernels practical without release-mode test commands.
 - Generated code has a separate lint boundary. Handwritten code retains normal lint checks.
+
+## Reference workflow
+
+- Install the published reference into an isolated environment with uv pip install --python .venv/bin/python 'laya[onnx]==0.4.4'.
+- Run tests/reference.py --export to prepare the ONNX graph and regenerate real checkpoint fixtures.
+- Run tests/reference.py without --export to compare the existing graph against the published reference and regenerate fixtures.
+- Run tests/reference.py --binary target/release/laya-rs to compare the CPU and integrated Vulkan CLI against frozen answers without importing the Python model.
+- Cargo parity tests consume frozen fixtures and local model artifacts. They do not invoke the Python reference or require an initialized submodule.
 
 ## Deferred scope
 

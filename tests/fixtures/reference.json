@@ -1,7 +1,6 @@
 {
   "revision": "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
   "weight_sha256": "891102d372688fc2a094dac56a384bc537b87c63f21f9f3dac0be2b7cbc8d86c",
-  "onnx_sha256": "f38b2b7e772b2b33298eaa42766ef230e085a73ba3712079e02252975bbced24",
   "packages": {
     "laya": "0.4.4",
     "torch": "2.14.1+cpu",
@@ -9519,5 +9518,6 @@
         }
       }
     }
-  ]
+  ],
+  "onnx_sha256": "165b85d5722f94a72d75a4fcde8336e0851a6a7dbcd2e2834ad34a042eb3ed07"
 }

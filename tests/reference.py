@@ -1,12 +1,12 @@
-"""Prepare real checkpoint fixtures and check the upstream ONNX export."""
+"""Export and check real checkpoint fixtures with the published Python reference."""
 
 import argparse
 import hashlib
 import importlib.metadata
+import importlib.util
 import json
 import os
 from pathlib import Path
-import runpy
 import subprocess
 import time
 
@@ -56,8 +56,8 @@ def main():
     mode.add_argument("--export", action="store_true")
     mode.add_argument("--binary", type=Path, help="Check and measure a CPU/Vulkan release binary on Linux")
     args = parser.parse_args()
-    manifest = json.loads((ROOT / "laya/verify/checkpoints.json").read_text())
-    expected = next(entry for entry in manifest["checkpoints"] if entry["name"] == "english")["sha256"]
+    manifest = json.loads((ROOT / "tests/fixtures/checkpoint.json").read_text())
+    expected = manifest["sha256"]
     if digest(MODEL / "model.safetensors") != expected:
         raise ValueError("checkpoint digest mismatch")
     graph = MODEL / "laya.onnx"
@@ -93,25 +93,26 @@ def main():
             compare(actual, expected)
             print(f"{backend}/release CLI: elapsed={time.perf_counter() - start:.6f}s peak_process_memory={usage.ru_maxrss}KiB. Answers match.", flush=True)
         return
+    if importlib.metadata.version("laya") != manifest["reference_version"]:
+        raise ValueError(f"reference requires published laya=={manifest['reference_version']}")
+    package = importlib.util.find_spec("laya")
+    if package is None or package.origin is None or Path(package.origin).resolve().is_relative_to(ROOT / "laya"):
+        raise ValueError("reference must not load the laya submodule")
     import onnxruntime as ort
     import torch
     from laya.agent import Agent
     from laya.common import collate_items
 
-    if args.export:
-        exporter = runpy.run_path(str(ROOT / "laya/scripts/export_onnx.py"))
-        exporter["export_to_onnx"](str(MODEL), str(graph))
     agent = Agent(str(MODEL), device="cpu", compile=False)
     agent.model.eval().float()
     if agent.amp_enabled:
         raise ValueError("reference requires FP32 without autocast")
     options = ort.SessionOptions()
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-    session = ort.InferenceSession(str(graph), sess_options=options, providers=["CPUExecutionProvider"])
+    session = None
     fixture = {
         "revision": manifest["revision"],
         "weight_sha256": expected,
-        "onnx_sha256": digest(graph),
         "packages": {name: importlib.metadata.version(name) for name in ("laya", "torch", "transformers", "tokenizers", "onnx", "onnxruntime")},
         "cases": [],
     }
@@ -128,6 +129,34 @@ def main():
             batch["marker_pos"] = torch.nn.functional.pad(batch["marker_pos"], (0, 1))
             batch["marker_mask"] = torch.nn.functional.pad(batch["marker_mask"], (0, 1), value=False)
         encode_seconds = time.perf_counter() - start
+        if session is None:
+            if args.export:
+                attention = agent.model.encoder.config._attn_implementation
+                fastpath = torch.backends.mha.get_fastpath_enabled()
+                try:
+                    agent.model.encoder.config._attn_implementation = "eager"
+                    torch.backends.mha.set_fastpath_enabled(False)
+                    batch_dim = torch.export.Dim("batch", min=1, max=64)
+                    sequence_dim = torch.export.Dim("sequence", min=1, max=512)
+                    marker_dim = torch.export.Dim("markers", min=2, max=256)
+                    with torch.inference_mode():
+                        torch.onnx.export(
+                            agent.model, tuple(batch[key] for key in INPUTS), str(graph),
+                            input_names=list(INPUTS), output_names=["logits", "act_logits"],
+                            dynamic_shapes=(
+                                {0: batch_dim, 1: sequence_dim},
+                                {0: batch_dim, 1: sequence_dim},
+                                {0: batch_dim, 1: marker_dim},
+                                {0: batch_dim, 1: marker_dim},
+                                {0: batch_dim},
+                            ),
+                            opset_version=18, dynamo=True, external_data=True,
+                        )
+                finally:
+                    agent.model.encoder.config._attn_implementation = attention
+                    torch.backends.mha.set_fastpath_enabled(fastpath)
+
+            session = ort.InferenceSession(str(graph), sess_options=options, providers=["CPUExecutionProvider"])
         start = time.perf_counter()
         with torch.inference_mode():
             outputs = agent.model(*(batch[key] for key in INPUTS))
@@ -152,6 +181,7 @@ def main():
             "act_logits": outputs[1].tolist(),
             "answers": answers,
         })
+    fixture["onnx_sha256"] = digest(graph)
     (ROOT / "tests/fixtures/reference.json").write_text(json.dumps(fixture, ensure_ascii=False, allow_nan=False, indent=2) + "\n")
     print(f"Checked {len(fixture['cases'])} real checkpoint cases.", flush=True)
 
