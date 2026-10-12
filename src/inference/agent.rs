@@ -1,35 +1,21 @@
-use std::path::Path;
+//! Complete checkpoint loading and request execution.
 
-use anyhow::{
-    Context,
-    Result,
-    ensure,
-};
+use std::{io::Write, path::Path};
+
+use anyhow::{Context, Result, ensure};
 use burn::tensor::Device;
-use burn_store::{
-    BurnpackStore,
-    ModuleSnapshot,
-};
+use burn_store::{BurnpackStore, ModuleSnapshot};
 use indexmap::IndexMap;
 use serde::Serialize;
 
 use crate::{
-    input::{
-        InputBuilder,
-        OptionStats,
-        Request,
-    },
-    model::{
-        self,
-        Model,
-    },
-    output::{
-        Answer,
-        Config,
-        decode,
-    },
+    input::{InputBuilder, OptionStats, Request},
+    model::{self, Model},
+    output::{Answer, Config, decode},
 };
 
+/// A complete local checkpoint bound to an explicit compute device.
+#[derive(Debug)]
 pub struct Agent {
     config: Config,
     inputs: InputBuilder,
@@ -37,25 +23,40 @@ pub struct Agent {
     device: Device,
 }
 
+/// Typed answers and input diagnostics for a request.
 #[derive(Debug, Serialize)]
 pub struct Prediction {
+    /// Answers keyed by the original question identifiers.
     pub answers: IndexMap<String, Answer>,
+    /// Token and truncation diagnostics.
     pub usage: Usage,
 }
 
+/// Input-token accounting and preprocessing diagnostics.
 #[derive(Debug, Serialize)]
 pub struct Usage {
+    /// Total padded tokens across question rows.
     pub input_tokens: usize,
+    /// Generated token count; always zero for this decision model.
     pub output_tokens: usize,
+    /// Token count of the original state.
     pub state_tokens: usize,
+    /// Largest state-token loss across question rows.
     pub state_tokens_dropped: usize,
+    /// Whether any row dropped state tokens.
     pub truncated: bool,
+    /// Questions whose state input was truncated.
     pub truncated_questions: Vec<String>,
+    /// Questions with collapsed option descriptions.
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     pub options: IndexMap<String, OptionStats>,
 }
 
 impl Agent {
+    /// Load all weights, configuration, and tokenizer assets.
+    ///
+    /// # Errors
+    /// Returns an error for missing or incompatible artifacts or incomplete tensor mappings.
     pub fn load(directory: &Path, device: &Device) -> Result<Self> {
         let config_path = directory.join("rl_agent_config.json");
         let config: Config = serde_json::from_slice(
@@ -83,9 +84,10 @@ impl Agent {
             "incomplete or incompatible model weights: {report}"
         );
         if config.adjusted_temperatures() {
-            eprintln!(
+            writeln!(
+                std::io::stderr().lock(),
                 "Checkpoint temperatures require adjustment to [0.5, 5.0]. Treat affected confidence values as uncalibrated."
-            );
+            )?;
         }
         Ok(Self {
             config,
@@ -95,6 +97,10 @@ impl Agent {
         })
     }
 
+    /// Encode a request, execute the model, and decode its answers.
+    ///
+    /// # Errors
+    /// Returns an error for unsupported requests, invalid tensors, or nonfinite model outputs.
     pub fn predict(&self, request: &Request) -> Result<Prediction> {
         let (rows, batch) = self.inputs.encode(request)?;
         let (logits, actions) = model::infer(&self.model, &batch, &self.device)?;

@@ -1,12 +1,14 @@
+//! Tokenization parity and invalid-request boundaries.
+#![expect(
+    clippy::unwrap_used,
+    reason = "Invalid fixed fixtures must fail the test immediately."
+)]
+
 use std::path::Path;
 
-use laya_rs::input::{
-    Batch,
-    InputBuilder,
-    Request,
-    Row,
-};
+use laya_rs::input::{Batch, InputBuilder, Request, Row};
 use serde::Deserialize;
+mod common;
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -23,11 +25,12 @@ struct Case {
 
 #[test]
 fn input_tensors_match_python() {
-    let fixture: Fixture = serde_json::from_str(include_str!("fixtures/reference.json")).unwrap();
+    let fixture: Fixture = serde_json::from_str(&common::reference()).unwrap();
+    let config = common::config();
     let builder = InputBuilder::load(
-        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/models/laya")),
-        512,
-        192,
+        common::model_directory(),
+        config.max_len,
+        config.head_max_len,
     )
     .unwrap();
     for case in fixture.cases {
@@ -39,10 +42,11 @@ fn input_tensors_match_python() {
 
 #[test]
 fn invalid_requests_fail_before_inference() {
+    let config = common::config();
     let builder = InputBuilder::load(
-        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/models/laya")),
-        512,
-        192,
+        common::model_directory(),
+        config.max_len,
+        config.head_max_len,
     )
     .unwrap();
     for value in [

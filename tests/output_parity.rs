@@ -1,15 +1,16 @@
+//! Typed-answer parity and invalid-output boundaries.
+#![expect(
+    clippy::unwrap_used,
+    reason = "Invalid fixed fixtures must fail the test immediately."
+)]
+
 use laya_rs::{
     input::Request,
-    output::{
-        Config,
-        decode,
-    },
+    output::{Config, decode},
 };
 use serde::Deserialize;
-use serde_json::{
-    Value,
-    json,
-};
+use serde_json::{Value, json};
+mod common;
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -26,13 +27,12 @@ struct Case {
 }
 
 fn config() -> Config {
-    serde_json::from_str(&std::fs::read_to_string("models/laya/rl_agent_config.json").unwrap())
-        .unwrap()
+    common::config()
 }
 
 #[test]
 fn typed_answers_match_python() {
-    let fixture: Fixture = serde_json::from_str(include_str!("fixtures/reference.json")).unwrap();
+    let fixture: Fixture = serde_json::from_str(&common::reference()).unwrap();
     for case in fixture.cases {
         let answers = decode(&config(), &case.request, &case.logits, &case.act_logits).unwrap();
         assert_eq!(

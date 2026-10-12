@@ -50,19 +50,31 @@ def cases():
     }
 
 
-def main():
+def require_reference(version):
+    if importlib.metadata.version("laya") != version:
+        raise ValueError(f"reference requires published laya=={version}")
+    package = importlib.util.find_spec("laya")
+    if package is None or package.origin is None or Path(package.origin).resolve().is_relative_to(ROOT / "laya"):
+        raise ValueError("reference must not load the laya submodule")
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--export", action="store_true")
     mode.add_argument("--binary", type=Path, help="Check and measure a CPU/Vulkan release binary on Linux")
-    args = parser.parse_args()
-    manifest = json.loads((ROOT / "tests/fixtures/checkpoint.json").read_text())
+    parser.add_argument("--model-directory", type=Path, default=MODEL, help="Local checkpoint to prepare or check")
+    args = parser.parse_args(argv)
+    directory = args.model_directory.resolve()
+    fixtures = ROOT / "tests/fixtures" if directory == MODEL.resolve() else directory
+    manifest = json.loads((fixtures / "checkpoint.json").read_text())
+    fixture_path = fixtures / "reference.json"
     expected = manifest["sha256"]
-    if digest(MODEL / "model.safetensors") != expected:
+    if digest(directory / "model.safetensors") != expected:
         raise ValueError("checkpoint digest mismatch")
-    graph = MODEL / "laya.onnx"
+    graph = directory / "laya.onnx"
     if args.binary:
-        fixture = json.loads((ROOT / "tests/fixtures/reference.json").read_text())
+        fixture = json.loads(fixture_path.read_text())
         if fixture["weight_sha256"] != expected or fixture["onnx_sha256"] != digest(graph):
             raise ValueError("reference fixture does not match the prepared model")
         if fixture["cases"][0]["request"] != json.loads((ROOT / "tests/fixtures/requests.json").read_text()):
@@ -71,7 +83,7 @@ def main():
         for backend in ("cpu", "vulkan-integrated"):
             output = ROOT / "target" / f"{backend}-output.json"
             errors = ROOT / "target" / f"{backend}-stderr.log"
-            command = [str(args.binary.resolve()), str(MODEL), str(ROOT / "tests/fixtures/requests.json"), backend]
+            command = [str(args.binary.resolve()), str(directory), str(ROOT / "tests/fixtures/requests.json"), backend]
             start = time.perf_counter()
             with output.open("w") as stdout, errors.open("w") as stderr:
                 process = subprocess.Popen(command, stdout=stdout, stderr=stderr, cwd=ROOT.parent)
@@ -93,17 +105,13 @@ def main():
             compare(actual, expected)
             print(f"{backend}/release CLI: elapsed={time.perf_counter() - start:.6f}s peak_process_memory={usage.ru_maxrss}KiB. Answers match.", flush=True)
         return
-    if importlib.metadata.version("laya") != manifest["reference_version"]:
-        raise ValueError(f"reference requires published laya=={manifest['reference_version']}")
-    package = importlib.util.find_spec("laya")
-    if package is None or package.origin is None or Path(package.origin).resolve().is_relative_to(ROOT / "laya"):
-        raise ValueError("reference must not load the laya submodule")
+    require_reference(manifest["reference_version"])
     import onnxruntime as ort
     import torch
     from laya.agent import Agent
     from laya.common import collate_items
 
-    agent = Agent(str(MODEL), device="cpu", compile=False)
+    agent = Agent(str(directory), device="cpu", compile=False)
     agent.model.eval().float()
     if agent.amp_enabled:
         raise ValueError("reference requires FP32 without autocast")
@@ -182,7 +190,7 @@ def main():
             "answers": answers,
         })
     fixture["onnx_sha256"] = digest(graph)
-    (ROOT / "tests/fixtures/reference.json").write_text(json.dumps(fixture, ensure_ascii=False, allow_nan=False, indent=2) + "\n")
+    fixture_path.write_text(json.dumps(fixture, ensure_ascii=False, allow_nan=False, indent=2) + "\n")
     print(f"Checked {len(fixture['cases'])} real checkpoint cases.", flush=True)
 
 

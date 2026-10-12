@@ -1,10 +1,17 @@
+//! Complete checkpoint inference parity.
+#![expect(
+    clippy::unwrap_used,
+    reason = "Invalid required artifacts or fixtures must fail the test."
+)]
+#![expect(
+    clippy::print_stdout,
+    reason = "Captured parity output identifies each exercised case."
+)]
+
 use std::path::Path;
 
 use burn::tensor::Device;
-use laya_rs::{
-    Agent,
-    Request,
-};
+use laya_rs::{Agent, Request};
 use serde::Deserialize;
 use serde_json::Value;
 mod common;
@@ -24,9 +31,9 @@ struct Case {
 
 #[test]
 fn real_requests_match_python() {
-    let directory = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/models/laya"));
+    let directory = common::model_directory();
     let agent = Agent::load(directory, &Device::flex()).unwrap();
-    let fixture: Fixture = serde_json::from_str(include_str!("fixtures/reference.json")).unwrap();
+    let fixture: Fixture = serde_json::from_str(&common::reference()).unwrap();
     for case in fixture.cases {
         let prediction = agent.predict(&case.request).unwrap();
         common::assert_answers(

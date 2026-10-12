@@ -1,25 +1,22 @@
+//! Integrated Vulkan inference parity and synchronized timing.
 #![cfg(feature = "vulkan")]
+#![expect(
+    clippy::unwrap_used,
+    reason = "Invalid required artifacts or fixtures must fail the test."
+)]
+#![expect(
+    clippy::print_stdout,
+    reason = "Captured output records measured parity and timings."
+)]
 
-use std::{
-    path::Path,
-    time::Instant,
-};
+use std::time::Instant;
 
-use burn::tensor::{
-    Device,
-    DeviceKind,
-};
+use burn::tensor::{Device, DeviceKind};
 use laya_rs::{
     Request,
     input::InputBuilder,
-    model::{
-        Model,
-        infer,
-    },
-    output::{
-        Config,
-        decode,
-    },
+    model::{Model, infer},
+    output::{Config, decode},
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -43,7 +40,7 @@ struct Case {
 #[test]
 fn integrated_vulkan_matches_python() {
     let device = Device::vulkan(DeviceKind::IntegratedGpu(0));
-    let directory = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/models/laya"));
+    let directory = common::model_directory();
     let start = Instant::now();
     let model = Model::from_file(directory.join("laya.bpk"), &device);
     let config: Config =
@@ -51,7 +48,7 @@ fn integrated_vulkan_matches_python() {
             .unwrap();
     let inputs = InputBuilder::load(directory, config.max_len, config.head_max_len).unwrap();
     println!("Vulkan load: {:?}", start.elapsed());
-    let fixture: Fixture = serde_json::from_str(include_str!("fixtures/reference.json")).unwrap();
+    let fixture: Fixture = serde_json::from_str(&common::reference()).unwrap();
     for case in fixture.cases {
         let start = Instant::now();
         let (_, batch) = inputs.encode(&case.request).unwrap();

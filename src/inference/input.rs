@@ -1,44 +1,52 @@
+//! Typed questions and checkpoint-compatible token assembly.
+
 use std::path::Path;
 
-use anyhow::{
-    Context,
-    Result,
-    ensure,
-};
+use anyhow::{Context, Result, ensure};
 use indexmap::IndexMap;
-use serde::{
-    Deserialize,
-    Serialize,
-};
+use serde::{Deserialize, Serialize};
 use tokenizers::Tokenizer;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// A text state and ordered questions to evaluate together.
 pub struct Request {
+    /// Text to evaluate.
     pub state: String,
+    /// Questions keyed by caller-defined identifiers.
     pub questions: IndexMap<String, Question>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+/// A supported typed decision question.
 pub enum Question {
+    /// Select one labeled option.
     Choice {
+        /// Task instructions rendered into the question head.
         instructions: String,
+        /// Ordered labels and optional descriptions.
         criteria: IndexMap<String, Option<String>>,
     },
+    /// Report a probability-weighted level on an ordinal scale.
     Score {
+        /// Task instructions rendered into the question head.
         instructions: String,
+        /// Ordered level descriptions.
         criteria: Vec<String>,
     },
+    /// Estimate the probability that a statement holds.
     Noul {
+        /// Statement or task instructions.
         instructions: String,
+        /// Optional descriptions for the false and true options.
         #[serde(default)]
         criteria: IndexMap<String, String>,
     },
 }
 
 impl Question {
-    pub(crate) fn kind(&self) -> (&'static str, i64) {
+    pub(crate) const fn kind(&self) -> (&'static str, i64) {
         match self {
             Self::Choice { .. } => ("choice", 0),
             Self::Score { .. } => ("score", 1),
@@ -106,39 +114,62 @@ impl Question {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+/// Option-budget diagnostics for one question.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub struct OptionStats {
+    /// Requested option count.
     pub options: usize,
+    /// Distinct tokenized options after budget cuts.
     pub options_distinct: usize,
+    /// Applied per-option budget when descriptions needed truncation.
     pub tokens_per_option: Option<usize>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+/// State-token accounting for one encoded row.
 pub struct StateStats {
+    /// Original state-token count.
     pub state_tokens: usize,
+    /// State tokens retained in the assembled sequence.
     pub state_tokens_used: usize,
+    /// State tokens removed to satisfy the sequence budget.
     pub state_tokens_dropped: usize,
+    /// Whether any state tokens were removed.
     pub truncated: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+/// One encoded question row and its diagnostics.
 pub struct Row {
+    /// Complete sequence token identifiers.
     pub ids: Vec<i64>,
+    /// Positions of option marker tokens.
     pub markers: Vec<i64>,
+    /// Checkpoint question-type identifier.
     pub qtype: i64,
+    /// Option-budget diagnostics.
     pub options: OptionStats,
+    /// State-token diagnostics.
     pub state_stats: StateStats,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+/// Padded host-side inputs for a model forward pass.
 pub struct Batch {
+    /// Padded token rows.
     pub input_ids: Vec<Vec<i64>>,
+    /// Binary validity masks for token rows.
     pub attention_mask: Vec<Vec<i64>>,
+    /// Padded marker-position rows.
     pub marker_pos: Vec<Vec<i64>>,
+    /// Validity masks for marker slots.
     pub marker_mask: Vec<Vec<bool>>,
+    /// One checkpoint question-type identifier per row.
     pub qtype: Vec<i64>,
 }
 
+/// A local tokenizer and token budgets matching the loaded checkpoint.
+#[derive(Debug)]
 pub struct InputBuilder {
     tokenizer: Tokenizer,
     cls: i64,
@@ -152,13 +183,21 @@ pub struct InputBuilder {
 
 #[derive(Deserialize)]
 struct TokenConfig {
-    cls_token: String,
-    sep_token: String,
-    pad_token: String,
-    mask_token: String,
+    #[serde(rename = "cls_token")]
+    cls: String,
+    #[serde(rename = "sep_token")]
+    sep: String,
+    #[serde(rename = "pad_token")]
+    pad: String,
+    #[serde(rename = "mask_token")]
+    mask: String,
 }
 
 impl InputBuilder {
+    /// Load tokenizer assets and validate sequence and question budgets.
+    ///
+    /// # Errors
+    /// Returns an error for unsupported budgets, missing assets, or invalid special tokens.
     pub fn load(directory: &Path, max_len: usize, head_max_len: usize) -> Result<Self> {
         ensure!(
             (16..=512).contains(&max_len),
@@ -185,11 +224,11 @@ impl InputBuilder {
             Ok(i64::from(id))
         };
         Ok(Self {
-            cls: token_id(&special.cls_token)?,
-            sep: token_id(&special.sep_token)?,
-            pad: token_id(&special.pad_token)?,
-            mask: token_id(&special.mask_token)?,
-            mask_token: special.mask_token,
+            cls: token_id(&special.cls)?,
+            sep: token_id(&special.sep)?,
+            pad: token_id(&special.pad)?,
+            mask: token_id(&special.mask)?,
+            mask_token: special.mask,
             tokenizer,
             max_len,
             head_max_len,
@@ -209,6 +248,10 @@ impl InputBuilder {
         Ok(encoding.get_ids().iter().map(|id| i64::from(*id)).collect())
     }
 
+    /// Encode every question and assemble a padded model batch.
+    ///
+    /// # Errors
+    /// Returns an error for invalid questions or unsupported token and option bounds.
     pub fn encode(&self, request: &Request) -> Result<(Vec<Row>, Batch)> {
         ensure!(
             !request.questions.is_empty(),
@@ -289,6 +332,11 @@ impl InputBuilder {
                 },
             });
         }
+        let batch = self.collate(&rows)?;
+        Ok((rows, batch))
+    }
+
+    fn collate(&self, rows: &[Row]) -> Result<Batch> {
         let length = rows
             .iter()
             .map(|row| row.ids.len())
@@ -313,6 +361,6 @@ impl InputBuilder {
             batch.marker_pos[index][..row.markers.len()].copy_from_slice(&row.markers);
             batch.marker_mask[index][..row.markers.len()].fill(true);
         }
-        Ok((rows, batch))
+        Ok(batch)
     }
 }

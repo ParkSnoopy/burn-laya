@@ -1,30 +1,32 @@
-use anyhow::{
-    Result,
-    ensure,
-};
+//! Checkpoint configuration and temperature-scaled typed answer decoding.
+
+use anyhow::{Result, ensure};
 use indexmap::IndexMap;
-use serde::{
-    Deserialize,
-    Serialize,
-};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::input::{
-    Question,
-    Request,
-};
+use crate::input::{Question, Request};
 
 #[derive(Debug, Deserialize)]
+/// Architecture, token budgets, and temperature settings for a checkpoint.
 pub struct Config {
+    /// Backbone encoder identifier.
     pub encoder: String,
+    /// Number of decision-head transformer layers.
     pub head_layers: usize,
+    /// Sequence token budget.
     pub max_len: usize,
+    /// Question-head token budget.
     pub head_max_len: usize,
+    /// Checkpoint action costs.
     pub act_costs: IndexMap<String, f64>,
+    /// Option layout; only sequential layout is supported.
     #[serde(default)]
     pub option_layout: Option<String>,
+    /// Fallback temperatures in checkpoint question-type order.
     #[serde(default)]
     pub temperature: [Value; 3],
+    /// Question-type and option-count temperature overrides.
     #[serde(default)]
     pub temperature_by_options: IndexMap<String, Value>,
 }
@@ -46,11 +48,13 @@ impl Config {
         Ok(())
     }
 
+    /// Report whether any stored temperature needs normalization or clamping.
+    #[must_use]
     pub fn adjusted_temperatures(&self) -> bool {
         self.temperature
             .iter()
             .chain(self.temperature_by_options.values())
-            .any(|value| value.as_f64().is_none_or(|raw| raw != temperature(value)))
+            .any(|value| value.as_f64().is_none_or(|raw| !(0.5..=5.0).contains(&raw)))
     }
 
     fn scale(&self, question: &Question, count: usize) -> f32 {
@@ -79,33 +83,50 @@ fn temperature(value: &Value) -> f64 {
 }
 
 #[derive(Debug, Serialize)]
+/// A typed answer and its confidence and action estimates.
 pub struct Answer {
+    /// Type-specific answer fields.
     #[serde(flatten)]
     pub value: AnswerValue,
+    /// Normalized-entropy confidence, or binary confidence for noul.
     pub confidence: f64,
+    /// Largest temperature-scaled option probability.
     pub answer_confidence: f64,
+    /// Action-head estimate.
     pub action: Action,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
+/// The result for one of the three supported question types.
 pub enum AnswerValue {
+    /// A selected label and option probabilities.
     Choice {
+        /// Selected option label.
         choice: String,
+        /// Temperature-scaled probabilities keyed by option label.
         probabilities: IndexMap<String, f64>,
     },
+    /// A probability-weighted ordinal level.
     Score {
+        /// Expected level index.
         score: f64,
+        /// Descriptions keyed by level index.
         legend: IndexMap<String, String>,
+        /// Temperature-scaled probabilities keyed by level index.
         probabilities: IndexMap<String, f64>,
     },
+    /// A binary statement probability.
     Noul {
+        /// Probability that the statement holds.
         noul: f64,
     },
 }
 
-#[derive(Debug, Serialize)]
+/// Action-head estimate, separate from answer confidence.
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct Action {
+    /// Probability of the first checkpoint action.
     pub act_probability: f64,
 }
 
@@ -130,6 +151,10 @@ fn softmax(logits: &[f32], scale: f32) -> Result<Vec<f32>> {
     Ok(probabilities)
 }
 
+/// Convert finite model logits into answers using checkpoint temperatures.
+///
+/// # Errors
+/// Returns an error for invalid questions, mismatched shapes, or nonfinite logits.
 pub fn decode(
     config: &Config,
     request: &Request,

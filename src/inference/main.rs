@@ -1,18 +1,10 @@
-use std::{
-    env,
-    path::PathBuf,
-};
+//! JSON command-line boundary for local Laya inference.
 
-use anyhow::{
-    Context,
-    Result,
-    ensure,
-};
+use std::{env, io::Write, path::PathBuf};
+
+use anyhow::{Context, Result, ensure};
 use burn::tensor::Device;
-use laya_rs::{
-    Agent,
-    Request,
-};
+use laya_rs::{Agent, Request};
 
 fn main() -> Result<()> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
@@ -40,9 +32,10 @@ fn main() -> Result<()> {
         }
     };
     let agent = Agent::load(&directory, &device)?;
-    println!(
+    writeln!(
+        std::io::stdout().lock(),
         "{}",
         serde_json::to_string_pretty(&agent.predict(&request)?)?
-    );
+    )?;
     Ok(())
 }

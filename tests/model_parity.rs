@@ -1,10 +1,17 @@
+//! Raw model-logit parity against `PyTorch` fixtures.
+#![expect(
+    clippy::unwrap_used,
+    reason = "Invalid required artifacts or fixtures must fail the test."
+)]
+#![expect(
+    clippy::print_stdout,
+    reason = "Captured output records measured numerical differences."
+)]
+
 use burn::tensor::Device;
 use laya_rs::{
     input::Batch,
-    model::{
-        Model,
-        infer,
-    },
+    model::{Model, infer},
 };
 use serde::Deserialize;
 mod common;
@@ -25,7 +32,7 @@ struct Case {
 
 #[test]
 fn full_checkpoint_matches_pytorch() {
-    let fixture: Fixture = serde_json::from_str(include_str!("fixtures/reference.json")).unwrap();
+    let fixture: Fixture = serde_json::from_str(&common::reference()).unwrap();
     let device = Device::flex();
     let model = Model::from_file(concat!(env!("OUT_DIR"), "/model/laya.bpk"), &device);
     for case in fixture.cases {
