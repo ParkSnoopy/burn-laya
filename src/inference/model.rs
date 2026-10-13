@@ -25,6 +25,8 @@ use anyhow::{Result, ensure};
 
 use crate::input::Batch;
 
+include!(concat!(env!("OUT_DIR"), "/model_limits.rs"));
+
 fn matrix<T: burn::tensor::Element>(rows: &[Vec<T>]) -> burn::tensor::TensorData {
     burn::tensor::TensorData::new(
         rows.iter().flatten().copied().collect(),
@@ -41,14 +43,11 @@ pub type ModelOutput = (Vec<Vec<f32>>, Vec<Vec<f32>>);
 /// Returns an error for invalid batch shapes, values, or nonfinite output tensors.
 pub fn infer(model: &Model, batch: &Batch, device: &Device) -> Result<ModelOutput> {
     let rows = batch.input_ids.len();
-    ensure!(
-        (1..=64).contains(&rows),
-        "batch needs between 1 and 64 rows"
-    );
+    ensure!(rows > 0, "batch needs at least one row");
     let length = batch.input_ids[0].len();
     ensure!(
-        (1..=512).contains(&length),
-        "sequence length must be between 1 and 512"
+        (1..=MAX_SEQUENCE_LENGTH).contains(&length),
+        "sequence length must be between 1 and {MAX_SEQUENCE_LENGTH}"
     );
     ensure!(
         batch.attention_mask.len() == rows
@@ -58,16 +57,13 @@ pub fn infer(model: &Model, batch: &Batch, device: &Device) -> Result<ModelOutpu
         "batch row counts must match"
     );
     let width = batch.marker_pos[0].len();
-    ensure!(
-        (2..=256).contains(&width),
-        "marker width must be between 2 and 256"
-    );
+    ensure!(width >= 2, "marker width needs at least two slots");
     for row in 0..rows {
         ensure!(
             batch.input_ids[row].len() == length
                 && batch.input_ids[row]
                     .iter()
-                    .all(|id| (0..50368).contains(id)),
+                    .all(|id| (0..VOCABULARY_SIZE).contains(id)),
             "invalid token row"
         );
         ensure!(
@@ -113,7 +109,7 @@ pub fn infer(model: &Model, batch: &Batch, device: &Device) -> Result<ModelOutpu
         "unexpected model output shape"
     );
     let collect = |tensor: Tensor<2>, width| -> Result<Vec<Vec<f32>>> {
-        let values = tensor.into_data().try_to_vec::<f32>()?;
+        let values = tensor.try_into_data()?.try_to_vec::<f32>()?;
         ensure!(
             values.iter().all(|value| value.is_finite()),
             "model returned nonfinite values"

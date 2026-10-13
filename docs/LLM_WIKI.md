@@ -20,6 +20,7 @@ Inspect published package sources for compatibility work, never replace the isol
 | JSON CLI | [main.rs](../src/inference/main.rs) | Parse a request file, select a device, emit a Prediction, and fail on invalid input or an unavailable backend. |
 | Input encoding | [input.rs](../src/inference/input.rs) | Typed questions, tokenizer assets, rendering, token budgets, option markers, padded batches, and truncation diagnostics. |
 | Tensor boundary | [model.rs](../src/inference/model.rs) | Include generated code, validate input tensors, execute both output heads, and reject nonfinite outputs. |
+| Attention execution | [attention.rs](../src/inference/attention.rs), [build.rs](../build.rs) | Use the supported ONNX Attention override and exact query/batch tiling to avoid oversized dense score buffers without dropping context. |
 | Answer decoding | [output.rs](../src/inference/output.rs) | Checkpoint compatibility, temperatures, ordered option probabilities, typed answers, and action probability. |
 | Runtime assembly | [agent.rs](../src/inference/agent.rs) | Load complete weights and tokenizer/configuration assets, then connect encoding, inference, and decoding. |
 | Graph conversion | [build.rs](../build.rs), [prepare example](../examples/prepare.rs) | Generate matching source and Burnpack under OUT_DIR, then deploy and validate the selected Burnpack. |
@@ -82,8 +83,9 @@ For a single option, both confidence values are 1.0 by definition, not evidence 
 Numerical answer fields are rounded to four decimal places; usage.output_tokens is zero because this model does not generate text.
 
 The graph supports ModernBERT-large, two decision-head layers, sequential options, and two action outputs.
-Fixed runtime limits are 512 tokens per sequence, 64 question rows, 256 marker slots, and token IDs below 50368.
-Checkpoint sequence and head budgets are validated before use; individual option descriptions are cut before assembling the bounded sequence.
+Sequence and vocabulary bounds are derived from encoder/config.json during graph conversion: 8192 tokens and 50368 vocabulary entries for the English checkpoint.
+Inference uses the full encoder capacity rather than the checkpoint's training max_len. No port-only question-row or option-count caps remain; markers must fit the sequence and execution requires sufficient memory.
+Question-head and individual option-description cuts preserve published Laya's token-assembly rules.
 State truncation is reported, and usage.options identifies questions whose option descriptions collapse to identical token spans.
 Missing assets, incompatible configuration, incomplete tensor mappings, out-of-bound markers, and nonfinite outputs are errors.
 Do not add structured states, parallel layouts, router/shortlist wrappers, other architectures, or native training by assuming upstream support implies Rust support.
@@ -104,6 +106,7 @@ uv pip install --python .venv/bin/python 'laya[onnx]==0.4.6'
   tokenizer/tokenizer.json tokenizer/tokenizer_config.json \
   --revision 1c5edc17a7acd8701df6fc341c0d179f1c62c982 --local-dir models/laya
 .venv/bin/python tools/reference.py --export
+.venv/bin/python tools/reference.py --capacity
 cargo run --example prepare
 cargo build --release
 target/release/laya models/laya tests/fixtures/requests.json cpu
@@ -139,6 +142,7 @@ Use separate real training and evaluation files; the [training smoke fixture](..
 .venv/bin/python tools/train.py \
   --data train.jsonl --eval eval.jsonl --out models/laya-finetuned \
   --freeze-encoder --loss soft-ce --micro-batch 1 --grad-accum 8 --device cpu
+.venv/bin/python tools/reference.py --model-directory models/laya-finetuned --capacity
 LAYA_MODEL_DIR=models/laya-finetuned cargo run --example prepare
 LAYA_MODEL_DIR=models/laya-finetuned cargo test
 LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
@@ -153,7 +157,8 @@ The base weight digest is checked before and after training, and the new checkpo
 Each trained checkpoint owns checkpoint.json and reference.json beside its weights; changing LAYA_MODEL_DIR selects its graph and its fixtures together.
 Export failure preserves trained weights but is not preparation success; Rust deployment begins only after export/parity succeeds.
 Remove --freeze-encoder for a full fine-tune, or select --loss rlcd for the upstream default objective.
-Inherited or overridden budgets must still fit the Rust graph; unsupported architecture/layout/action shapes fail instead of silently widening support.
+Training defaults to the encoder's full capacity; --max-len explicitly selects a smaller budget. Real and dry-run training validate budgets against that capacity; unsupported architecture/layout/action shapes fail instead of silently widening support.
+Generate capacity fixtures for each trained checkpoint with tools/reference.py --model-directory models/laya-finetuned --capacity before running the full test suite.
 
 Laya 0.4.6 preserves the model and training CLI interfaces, but fixes calibration fitting by grouping rows by actual option count and bounding log-temperature search.
 These fixes are inherited through the published trainer; do not duplicate its calibration optimizer in Rust.
@@ -207,6 +212,7 @@ The optional branches/std feature selects the supported dependency implementatio
 | --- | --- |
 | [input_parity.rs](../tests/input_parity.rs) | Exact token IDs, marker positions, masks, and diagnostics; reject invalid request shapes, including null state. |
 | [model_parity.rs](../tests/model_parity.rs) | Finite outputs from both heads match real FP32 fixtures with absolute and relative tolerances of 1e-4. |
+| [capacity.rs](../tests/capacity.rs) | Exact token assembly, raw outputs, and decoded answers match Python at native capacity and beyond the former row/option caps on CPU and integrated Vulkan. |
 | [output_parity.rs](../tests/output_parity.rs) | Exact typed decoding for the same logits; ties, temperature handling, and invalid-output errors. |
 | [inference.rs](../tests/inference.rs) | Complete CPU predictions preserve labels/structure and numerical fields within the rounding boundary. |
 | [gpu.rs](../tests/gpu.rs) | Integrated Vulkan predictions match the same fixtures; synchronized host results separate encoding, forward, and decoding timings. |

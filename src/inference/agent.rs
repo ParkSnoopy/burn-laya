@@ -65,7 +65,8 @@ impl Agent {
         )
         .with_context(|| format!("invalid configuration: {}", config_path.display()))?;
         config.check()?;
-        let inputs = InputBuilder::load(directory, config.max_len, config.head_max_len)?;
+        let inputs =
+            InputBuilder::load(directory, model::MAX_SEQUENCE_LENGTH, config.head_max_len)?;
         let weights = directory.join("laya.bpk");
         ensure!(
             weights.is_file(),

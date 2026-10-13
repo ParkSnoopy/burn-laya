@@ -29,7 +29,7 @@ fn input_tensors_match_python() {
     let config = common::config();
     let builder = InputBuilder::load(
         common::model_directory(),
-        config.max_len,
+        laya::model::MAX_SEQUENCE_LENGTH,
         config.head_max_len,
     )
     .unwrap();
@@ -45,7 +45,7 @@ fn invalid_requests_fail_before_inference() {
     let config = common::config();
     let builder = InputBuilder::load(
         common::model_directory(),
-        config.max_len,
+        laya::model::MAX_SEQUENCE_LENGTH,
         config.head_max_len,
     )
     .unwrap();
@@ -66,6 +66,21 @@ fn invalid_requests_fail_before_inference() {
     ] {
         assert!(serde_json::from_str::<Request>(value).is_err(), "{value}");
     }
-    assert!(InputBuilder::load(Path::new("models/laya"), 8192, 192).is_err());
+    assert!(
+        InputBuilder::load(
+            common::model_directory(),
+            laya::model::MAX_SEQUENCE_LENGTH,
+            192
+        )
+        .is_ok()
+    );
+    assert!(
+        InputBuilder::load(
+            Path::new("models/laya"),
+            laya::model::MAX_SEQUENCE_LENGTH + 1,
+            192
+        )
+        .is_err()
+    );
     assert!(InputBuilder::load(Path::new("models/laya"), 512, 513).is_err());
 }

@@ -46,7 +46,12 @@ fn integrated_vulkan_matches_python() {
     let config: Config =
         serde_json::from_slice(&std::fs::read(directory.join("rl_agent_config.json")).unwrap())
             .unwrap();
-    let inputs = InputBuilder::load(directory, config.max_len, config.head_max_len).unwrap();
+    let inputs = InputBuilder::load(
+        directory,
+        laya::model::MAX_SEQUENCE_LENGTH,
+        config.head_max_len,
+    )
+    .unwrap();
     println!("Vulkan load: {:?}", start.elapsed());
     let fixture: Fixture = serde_json::from_str(&common::reference()).unwrap();
     for case in fixture.cases {

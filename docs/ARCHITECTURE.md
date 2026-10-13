@@ -8,7 +8,9 @@
 - Choice criteria are an ordered map of labels to descriptions. A missing description uses the label alone.
 - Noul reports the probability of true. Its option order remains false, then true.
 - Unsupported fields, structured states, parallel layouts, and incompatible configurations fail explicitly.
-- Limits are 512 tokens per sequence, 64 question rows, and 256 marker slots.
+- Inference uses the encoder's native sequence capacity (8192 for the English checkpoint), including question, options, state, and special tokens; the checkpoint's training max_len does not reduce inference capacity.
+- Question rows and option counts have no port-specific caps. Option markers must fit within the sequence; memory availability still bounds execution.
+- Native sequence and vocabulary bounds come from encoder/config.json during graph conversion. Upstream question-head and per-option token-budget rules remain unchanged.
 - Input diagnostics report state truncation and option descriptions that collapse after token-budget cuts.
 - Confidence is normalized entropy for choice and score. Answer confidence is the largest temperature-scaled option probability.
 - Shipped temperature values do not establish calibration on a user's data.
@@ -17,11 +19,13 @@
 
 - [src/inference/input.rs](../src/inference/input.rs) defines requests, token assembly, marker positions, batching, and input diagnostics.
 - [src/inference/model.rs](../src/inference/model.rs) includes generated Burn code and checks raw batch shapes and outputs.
+- [src/inference/attention.rs](../src/inference/attention.rs) tiles exact attention over query rows and batches so scratch score allocations do not grow with the complete sequence squared.
 - [src/inference/output.rs](../src/inference/output.rs) reads decision configuration and decodes option and action logits.
 - [src/inference/agent.rs](../src/inference/agent.rs) loads complete local artifacts and connects preprocessing, inference, and decoding.
 - [src/inference/main.rs](../src/inference/main.rs) provides the JSON command-line boundary.
 - [src/lib.rs](../src/lib.rs) preserves the crate's original public imports through re-exports.
-- build.rs converts the complete ONNX graph into Burn operations and separate Burnpack weights.
+- build.rs converts the complete ONNX graph into Burn operations and separate Burnpack weights, using Burn's supported Attention code-generation override to call the shared tiled implementation.
+- Attention tiles retain every key/value position and the original scale and additive masks; tiling is not context windowing or input truncation. The scratch budget is an execution detail, not an input limit.
 - The laya submodule remains a passive parity reference. No build, runtime, preparation, or validation tool may load its files or depend on it.
 
 ## Core data flow
@@ -50,7 +54,7 @@
 - The reference harness rejects imports that resolve inside the submodule before loading Python model code.
 - The harness compares exported outputs against eager FP32 PyTorch before writing fixtures.
 - Reference fixture metadata records package versions and checkpoint provenance. Fixture outputs are precomputed from real weights.
-- Cargo requires laya.onnx and its external tensor data from the directory selected by LAYA_MODEL_DIR, defaulting to models/laya.
+- Cargo requires laya.onnx, its external tensor data, and encoder/config.json from the directory selected by LAYA_MODEL_DIR, defaulting to models/laya.
 - Generated source and weights remain under OUT_DIR. Models and Python environments remain ignored.
 - The deployment directory contains laya.bpk, rl_agent_config.json, and tokenizer files.
 - Run cargo run --example prepare to deploy and validate the generated Burnpack in the selected model directory.
@@ -60,6 +64,7 @@
 ## Verification boundaries
 
 - tests/model_parity.rs compares both output heads against real PyTorch fixtures.
+- tests/capacity.rs checks exact input assembly, both output heads, and decoded answers at the native sequence capacity, above 64 question rows, and above 256 options on CPU and, when enabled, integrated Vulkan.
 - Raw FP32 comparisons use absolute and relative tolerances of 1e-4.
 - tests/input_parity.rs requires exact equality of token IDs, markers, masks, and diagnostics.
 - tests/output_parity.rs requires exact decoded answers when supplied the same reference logits.
@@ -77,6 +82,7 @@
 
 - Install the published reference into an isolated environment with uv pip install --python .venv/bin/python 'laya[onnx]==0.4.6'.
 - Run tools/reference.py --export to prepare the ONNX graph and regenerate real checkpoint fixtures.
+- Run tools/reference.py --capacity to generate separate native-capacity fixtures against the prepared graph; this performs real long-sequence inference, not just shape validation.
 - Run tools/reference.py without --export to compare the existing graph against the published reference and regenerate fixtures.
 - Run tools/reference.py --binary target/release/laya to compare the CPU and integrated Vulkan CLI against frozen answers without importing the Python model.
 - Pass --model-directory for a trained checkpoint. Its checkpoint.json and reference.json stay beside its weights, separate from the base fixtures.
@@ -102,6 +108,7 @@ Provide real labeled train.jsonl and a separate eval.jsonl; JSONL records use st
 .venv/bin/python tools/train.py \
   --data train.jsonl --eval eval.jsonl --out models/laya-finetuned \
   --freeze-encoder --loss soft-ce --micro-batch 1 --grad-accum 8 --device cpu
+.venv/bin/python tools/reference.py --model-directory models/laya-finetuned --capacity
 LAYA_MODEL_DIR=models/laya-finetuned cargo run --example prepare
 LAYA_MODEL_DIR=models/laya-finetuned cargo test --all-features
 LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
@@ -111,7 +118,8 @@ LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
 
 Remove --freeze-encoder for a full fine-tune; --loss rlcd selects the upstream default objective.
 Select cuda or mps only with a compatible PyTorch build and device; Rust Vulkan availability does not establish PyTorch training support.
-The inherited token budgets stay within the current Rust runtime's 512-token limit.
+Training defaults to the encoder's full sequence capacity; --max-len can explicitly select a smaller budget. Both real training and dry-run validation reject budgets beyond the encoder's capacity.
+After training/export, generate the trained checkpoint's capacity fixtures with tools/reference.py --model-directory models/laya-finetuned --capacity before running all parity tests.
 The shared parity tests select the same checkpoint directory as code generation; they never compare trained weights against the base model's answers.
 The [synthetic training](../tests/fixtures/train-smoke.jsonl) and [evaluation](../tests/fixtures/eval-smoke.jsonl) fixtures exercise training and artifact conversion only.
 A tiny smoke dataset is not evidence of useful task accuracy or fitted calibration.

@@ -21,8 +21,38 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def cases():
+def cases(capacity=None):
     request = json.loads((ROOT / "tests/fixtures/requests.json").read_text())
+    if capacity is not None:
+        question = {
+            "type": "choice",
+            "instructions": "Which department?",
+            "criteria": {"billing": "refunds", "technical": "software"},
+        }
+        yield (
+            "capacity",
+            {"state": " invoice" * capacity, "questions": {"department": question}},
+        )
+        yield (
+            "many-questions",
+            {
+                "state": "refund",
+                "questions": {f"question-{index}": question for index in range(65)},
+            },
+        )
+        yield (
+            "many-options",
+            {
+                "state": "",
+                "questions": {
+                    "department": {
+                        **question,
+                        "criteria": {f"team-{index}": None for index in range(257)},
+                    }
+                },
+            },
+        )
+        return
     yield "mixed", request
     for name, state in (
         (
@@ -93,11 +123,20 @@ def main(argv=None):
         default=MODEL,
         help="Local checkpoint to prepare or check",
     )
+    parser.add_argument(
+        "--capacity",
+        action="store_true",
+        help="Check native sequence capacity and formerly capped batch/option dimensions",
+    )
     args = parser.parse_args(argv)
+    if args.capacity and (args.export or args.binary):
+        parser.error(
+            "--capacity checks an existing graph; do not combine it with --export or --binary"
+        )
     directory = args.model_directory.resolve()
     fixtures = ROOT / "tests/fixtures" if directory == MODEL.resolve() else directory
     manifest = json.loads((fixtures / "checkpoint.json").read_text())
-    fixture_path = fixtures / "reference.json"
+    fixture_path = fixtures / ("capacity.json" if args.capacity else "reference.json")
     expected = manifest["sha256"]
     if digest(directory / "model.safetensors") != expected:
         raise ValueError("checkpoint digest mismatch")
@@ -163,6 +202,7 @@ def main(argv=None):
 
     agent = Agent(str(directory), device="cpu", compile=False)
     agent.model.eval().float()
+    capacity = agent.model.encoder.config.max_position_embeddings
     if agent.amp_enabled:
         raise ValueError("reference requires FP32 without autocast")
     options = ort.SessionOptions()
@@ -184,7 +224,7 @@ def main(argv=None):
         },
         "cases": [],
     }
-    for name, request in cases():
+    for name, request in cases(capacity if args.capacity else None):
         questions = request["questions"]
         for question_id, question in questions.items():
             agent._check_question(question_id, question)
@@ -192,7 +232,9 @@ def main(argv=None):
             qid: agent._to_internal(definition) for qid, definition in questions.items()
         }
         start = time.perf_counter()
-        encoded_rows = agent._encode_state(request["state"], list(questions), internal)
+        encoded_rows = agent._encode_state(
+            request["state"], list(questions), internal, max_len=capacity
+        )
         batch = collate_items([encoded_rows], agent.tok.pad_token_id)
         # Match ONNXAgent: the traced TopK requires two slots even for a single option.
         if batch["marker_pos"].shape[1] < 2:
@@ -203,19 +245,55 @@ def main(argv=None):
         encode_seconds = time.perf_counter() - start
         if session is None:
             if args.export:
+                from onnxscript import BOOL, FLOAT, opset23, optimizer
+
+                def export_attention(
+                    query: FLOAT,
+                    key: FLOAT,
+                    value: FLOAT,
+                    attn_mask: FLOAT | BOOL | None = None,
+                    dropout_p: float = 0.0,
+                    is_causal: bool = False,
+                    scale: float | None = None,
+                    enable_gqa: bool = False,
+                ) -> FLOAT:
+                    if dropout_p or enable_gqa:
+                        raise ValueError(
+                            "export requires inference-only multi-head attention"
+                        )
+                    if attn_mask is not None:
+                        # ORT's Attention kernel requires the query axis explicitly,
+                        # even for a broadcast padding mask.
+                        mask_shape = opset23.Concat(
+                            opset23.Shape(query, start=0, end=1),
+                            opset23.Shape(attn_mask, start=1, end=2),
+                            opset23.Shape(query, start=2, end=3),
+                            opset23.Shape(key, start=2, end=3),
+                            axis=0,
+                        )
+                        attn_mask = opset23.Expand(attn_mask, mask_shape)
+                    return opset23.Attention(
+                        query,
+                        key,
+                        value,
+                        attn_mask,
+                        is_causal=int(is_causal),
+                        scale=scale,
+                    )[0]
+
                 attention = agent.model.encoder.config._attn_implementation
                 fastpath = torch.backends.mha.get_fastpath_enabled()
                 try:
                     agent.model.encoder.config._attn_implementation = "eager"
                     torch.backends.mha.set_fastpath_enabled(False)
-                    batch_dim = torch.export.Dim("batch", min=1, max=64)
-                    sequence_dim = torch.export.Dim("sequence", min=1, max=512)
-                    marker_dim = torch.export.Dim("markers", min=2, max=256)
+                    batch_dim = torch.export.Dim("batch", min=1)
+                    sequence_dim = torch.export.Dim("sequence", min=1, max=capacity)
+                    marker_dim = torch.export.Dim("markers", min=2)
                     with torch.inference_mode():
-                        torch.onnx.export(
+                        program = torch.onnx.export(
                             agent.model,
                             tuple(batch[key] for key in INPUTS),
-                            str(graph),
+                            None,
                             input_names=list(INPUTS),
                             output_names=["logits", "act_logits"],
                             dynamic_shapes=(
@@ -225,10 +303,18 @@ def main(argv=None):
                                 {0: batch_dim, 1: marker_dim},
                                 {0: batch_dim},
                             ),
-                            opset_version=18,
+                            opset_version=23,
+                            custom_translation_table={
+                                torch.ops.aten.scaled_dot_product_attention.default: export_attention
+                            },
                             dynamo=True,
                             external_data=True,
+                            optimize=False,
                         )
+                        # Constant-fold without the opset-23 RotaryEmbedding rewrite,
+                        # which loses ModernBERT's broadcast cache semantics.
+                        program.model = optimizer.optimize(program.model)
+                        program.save(str(graph), external_data=True)
                 finally:
                     agent.model.encoder.config._attn_implementation = attention
                     torch.backends.mha.set_fastpath_enabled(fastpath)

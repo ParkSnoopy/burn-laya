@@ -11,16 +11,17 @@ pub fn model_directory() -> &'static std::path::Path {
 }
 
 pub fn reference() -> String {
+    fixture("reference.json")
+}
+
+pub fn fixture(name: &str) -> String {
     let original = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/models/laya"))
         .canonicalize()
         .unwrap();
     let path = if model_directory() == original {
-        std::path::PathBuf::from(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/reference.json"
-        ))
+        std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures")).join(name)
     } else {
-        model_directory().join("reference.json")
+        model_directory().join(name)
     };
     std::fs::read_to_string(path).unwrap()
 }

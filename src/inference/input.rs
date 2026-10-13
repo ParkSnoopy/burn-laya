@@ -7,6 +7,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tokenizers::Tokenizer;
 
+use crate::model::{MAX_SEQUENCE_LENGTH, VOCABULARY_SIZE};
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 /// A text state and ordered questions to evaluate together.
@@ -106,10 +108,7 @@ impl Question {
             }
         };
         ensure!(!options.is_empty(), "question needs at least one option");
-        ensure!(
-            options.len() <= 256,
-            "question exceeds the supported 256 options"
-        );
+
         Ok(options)
     }
 }
@@ -200,12 +199,12 @@ impl InputBuilder {
     /// Returns an error for unsupported budgets, missing assets, or invalid special tokens.
     pub fn load(directory: &Path, max_len: usize, head_max_len: usize) -> Result<Self> {
         ensure!(
-            (16..=512).contains(&max_len),
-            "max_len must be between 16 and 512 for this graph"
+            (1..=MAX_SEQUENCE_LENGTH).contains(&max_len),
+            "max_len must be between 1 and {MAX_SEQUENCE_LENGTH} for this graph"
         );
         ensure!(
-            (16..=max_len).contains(&head_max_len),
-            "head_max_len must be between 16 and max_len"
+            (1..=max_len).contains(&head_max_len),
+            "head_max_len must be between 1 and max_len"
         );
         let mut tokenizer = Tokenizer::from_file(directory.join("tokenizer/tokenizer.json"))
             .map_err(anyhow::Error::msg)?;
@@ -220,7 +219,10 @@ impl InputBuilder {
             let id = tokenizer
                 .token_to_id(text)
                 .with_context(|| format!("tokenizer does not contain {text}"))?;
-            ensure!(id < 50368, "special token exceeds graph vocabulary");
+            ensure!(
+                i64::from(id) < VOCABULARY_SIZE,
+                "special token exceeds graph vocabulary"
+            );
             Ok(i64::from(id))
         };
         Ok(Self {
@@ -242,7 +244,10 @@ impl InputBuilder {
             .encode(sanitized, false)
             .map_err(anyhow::Error::msg)?;
         ensure!(
-            encoding.get_ids().iter().all(|id| *id < 50368),
+            encoding
+                .get_ids()
+                .iter()
+                .all(|id| i64::from(*id) < VOCABULARY_SIZE),
             "token exceeds graph vocabulary"
         );
         Ok(encoding.get_ids().iter().map(|id| i64::from(*id)).collect())
@@ -257,10 +262,7 @@ impl InputBuilder {
             !request.questions.is_empty(),
             "request needs at least one question"
         );
-        ensure!(
-            request.questions.len() <= 64,
-            "request exceeds the supported 64 question rows"
-        );
+
         let state = self.tokens(&request.state)?;
         let mut rows = Vec::with_capacity(request.questions.len());
         for (id, question) in &request.questions {
@@ -286,7 +288,7 @@ impl InputBuilder {
                 self.head_max_len as i64 - spans.iter().map(Vec::len).sum::<usize>() as i64;
             let mut tokens_per_option = None;
             if budget < 16 {
-                let per = 4.max((self.head_max_len - 16) / spans.len());
+                let per = 4.max(self.head_max_len.saturating_sub(16) / spans.len());
                 for span in &mut spans {
                     span.truncate(per);
                 }

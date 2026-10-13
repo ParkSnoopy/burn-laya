@@ -21,14 +21,6 @@ def main():
     base = Path(args.model_dir).resolve()
     if not (base / "model.safetensors").is_file():
         parser.error("--base must be a local checkpoint directory")
-    trainer_args = [*sys.argv[1:], "--base", str(base)]
-    if args.dry_run:
-        return train_reference(trainer_args)
-    if not args.output_dir:
-        parser.error("--out is required unless --dry-run is set")
-    output = Path(args.output_dir).resolve()
-    if output.exists() or output.is_relative_to(base) or base.is_relative_to(output):
-        parser.error("--out must be a new directory separate from the base checkpoint")
     config = json.loads((base / "rl_agent_config.json").read_text())
     if (
         config["encoder"] != "answerdotai/ModernBERT-large"
@@ -44,12 +36,25 @@ def main():
         parser.error(
             "training export requires sequential options and two action outputs"
         )
-    max_len = args.max_len or config["max_len"]
-    head_max_len = args.head_max_len or config["head_max_len"]
-    if not 16 <= head_max_len <= max_len <= 512:
+    capacity = json.loads((base / "encoder/config.json").read_text())[
+        "max_position_embeddings"
+    ]
+    max_len = capacity if args.max_len is None else args.max_len
+    head_max_len = (
+        config["head_max_len"] if args.head_max_len is None else args.head_max_len
+    )
+    if not 1 <= head_max_len <= max_len <= capacity:
         parser.error(
-            "training token budgets must fit the Rust runtime's 512-token limit"
+            f"training token budgets must fit the encoder's {capacity}-token capacity"
         )
+    trainer_args = [*sys.argv[1:], "--base", str(base), "--max-len", str(max_len)]
+    if args.dry_run:
+        return train_reference(trainer_args)
+    if not args.output_dir:
+        parser.error("--out is required unless --dry-run is set")
+    output = Path(args.output_dir).resolve()
+    if output.exists() or output.is_relative_to(base) or base.is_relative_to(output):
+        parser.error("--out must be a new directory separate from the base checkpoint")
     original = digest(base / "model.safetensors")
     status = train_reference(trainer_args)
     if status:
