@@ -1,7 +1,6 @@
-//! Convert the selected local ONNX checkpoint to Burn source and weights.
+//! Explicit ONNX conversion for the supported inference architecture.
 
-use std::io::Write;
-
+use anyhow::Context;
 use burn_onnx::{
     LoadStrategy,
     ModelGen,
@@ -89,53 +88,62 @@ impl OpOverride for TiledAttention {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut output = std::io::stdout().lock();
-    writeln!(output, "cargo:rerun-if-env-changed=LAYA_MODEL_DIR")?;
-    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(std::env::var_os("LAYA_MODEL_DIR").unwrap_or_else(|| "models/laya".into()))
-        .canonicalize()?;
+/// Convert a supported local ONNX checkpoint to complete Burnpack weights.
+///
+/// # Errors
+/// Returns an error for missing assets or a graph incompatible with the bundled model.
+pub fn generate(directory: &std::path::Path) -> anyhow::Result<()> {
     let graph = directory.join("laya.onnx");
-    writeln!(
-        output,
-        "cargo:rustc-env=LAYA_MODEL_DIR={}",
-        directory.display()
-    )?;
-    writeln!(output, "cargo:rerun-if-changed={}", graph.display())?;
-    writeln!(
-        output,
-        "cargo:rerun-if-changed={}",
-        directory.join("laya.onnx.data").display()
-    )?;
-    writeln!(output, "cargo:rerun-if-changed=build.rs")?;
     let encoder = directory.join("encoder/config.json");
-    writeln!(output, "cargo:rerun-if-changed={}", encoder.display())?;
     let config: serde_json::Value = serde_json::from_slice(&std::fs::read(encoder)?)?;
     let capacity = config["max_position_embeddings"]
         .as_u64()
         .filter(|value| *value > 0)
-        .ok_or("encoder needs a positive max_position_embeddings")?;
+        .ok_or_else(|| anyhow::anyhow!("encoder needs a positive max_position_embeddings"))?;
     let vocabulary = config["vocab_size"]
         .as_u64()
         .filter(|value| *value > 0)
-        .ok_or("encoder needs a positive vocab_size")?;
-    writeln!(
-        std::fs::File::create(
-            std::path::Path::new(&std::env::var("OUT_DIR")?).join("model_limits.rs")
-        )?,
-        "/// Native sequence capacity of the exported encoder.\npub const MAX_SEQUENCE_LENGTH: usize = {capacity};\n/// Vocabulary size of the exported encoder.\npub const VOCABULARY_SIZE: i64 = {vocabulary};"
-    )?;
-    if !graph.is_file() {
-        return Err(
-            "Missing laya.onnx. Prepare the verified checkpoint with tools/reference.py --export."
-                .into(),
-        );
-    }
+        .ok_or_else(|| anyhow::anyhow!("encoder needs a positive vocab_size"))?;
+    anyhow::ensure!(
+        capacity == crate::model::MAX_SEQUENCE_LENGTH as u64
+            && vocabulary == crate::model::VOCABULARY_SIZE as u64,
+        "encoder bounds differ from the bundled inference architecture"
+    );
+    anyhow::ensure!(
+        graph.is_file(),
+        "Missing laya.onnx. Prepare the verified checkpoint with tools/reference.py --export."
+    );
     ModelGen::new()
         .register_op_override(TiledAttention)
-        .input(graph.to_str().ok_or("Model path must be UTF-8")?)
-        .out_dir("model")
+        .input(
+            graph
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Model path must be UTF-8"))?,
+        )
+        .out_dir(
+            directory
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Model path must be UTF-8"))?,
+        )
         .load_strategy(LoadStrategy::File)
-        .run_from_script();
+        .run_from_cli();
+    let source_path = directory.join("laya.rs");
+    let source = std::fs::read_to_string(&source_path)?;
+    let weights = directory.join("laya.bpk");
+    let weight_literal = burn_onnx::ext::proc_macro2::Literal::string(
+        weights.to_str().context("Model path must be UTF-8")?,
+    );
+    let source = source
+        .replacen(
+            source.lines().next().context("empty generated source")?,
+            "// Generated from the verified English Laya ONNX graph by burn-onnx 0.22.",
+            1,
+        )
+        .replace(&weight_literal.to_string(), "\"laya.bpk\"");
+    anyhow::ensure!(
+        source == include_str!("generated/laya.rs"),
+        "exported graph differs from the bundled inference architecture; regenerate and review the bundled source before deployment"
+    );
+    std::fs::write(source_path, source)?;
     Ok(())
 }

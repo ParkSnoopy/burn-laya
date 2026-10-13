@@ -43,7 +43,7 @@ fn check_capacity(device: &Device) {
         config.head_max_len,
     )
     .unwrap();
-    let model = Model::from_file(concat!(env!("OUT_DIR"), "/model/laya.bpk"), device);
+    let model = Model::from_file(common::model_directory().join("laya.bpk"), device);
     for case in fixture.cases {
         let (rows, batch) = builder.encode(&case.request).unwrap();
         assert_eq!(rows, case.items, "{} rows", case.name);

@@ -11,7 +11,7 @@
 - Unsupported fields, structured states, parallel layouts, and incompatible configurations fail explicitly.
 - Inference uses the encoder's native sequence capacity (8192 for the English checkpoint), including question, options, state, and special tokens; the checkpoint's training max_len does not reduce inference capacity.
 - Question rows and option counts have no port-specific caps. Option markers must fit within the sequence; memory availability still bounds execution.
-- Native sequence and vocabulary bounds come from encoder/config.json during graph conversion. Upstream question-head and per-option token-budget rules remain unchanged.
+- Bundled sequence and vocabulary bounds were generated from the verified encoder/config.json. Preparation checks selected encoder bounds and generated source against the bundled architecture. Upstream question-head and per-option token-budget rules remain unchanged.
 - Input diagnostics report state truncation and option descriptions that collapse after token-budget cuts.
 - Confidence is normalized entropy for choice and score. Answer confidence is the largest temperature-scaled option probability.
 - Shipped temperature values do not establish calibration on a user's data.
@@ -25,7 +25,8 @@
 - [src/inference/agent.rs](../src/inference/agent.rs) loads complete local artifacts and connects preprocessing, inference, and decoding.
 - [src/inference/main.rs](../src/inference/main.rs) provides the JSON command-line boundary.
 - [src/lib.rs](../src/lib.rs) preserves the crate's original public imports through re-exports.
-- build.rs converts the complete ONNX graph into Burn operations and separate Burnpack weights, using Burn's supported Attention code-generation override to call the shared tiled implementation.
+- [src/inference/generated/](../src/inference/generated/) contains the verified generated Burn graph and encoder bounds, but no weights or developer-specific paths.
+- [src/inference/prepare.rs](../src/inference/prepare.rs) exposes explicit ONNX conversion under the optional prepare feature, using Burn's supported Attention override to call the shared tiled implementation. The prepare example validates complete converted weights.
 - Attention tiles retain every key/value position and the original scale and additive masks; tiling is not context windowing or input truncation. The scratch budget is an execution detail, not an input limit.
 - The laya submodule remains a passive parity reference. No build, runtime, preparation, or validation tool may load its files or depend on it.
 
@@ -55,10 +56,12 @@
 - The reference harness rejects imports that resolve inside the submodule before loading Python model code.
 - The harness compares exported outputs against eager FP32 PyTorch before writing fixtures.
 - Reference fixture metadata records package versions and checkpoint provenance. Fixture outputs are precomputed from real weights.
-- Cargo requires laya.onnx, its external tensor data, and encoder/config.json from the directory selected by LAYA_MODEL_DIR, defaulting to models/laya.
-- Generated source and weights remain under OUT_DIR. Models and Python environments remain ignored.
+- Normal compilation and Cargo package verification use bundled generated source and need no local checkpoint, Python, model download, or preparation feature.
+- The prepare example requires laya.onnx, its external tensor data, and encoder/config.json from LAYA_MODEL_DIR, defaulting to models/laya. It generates source and weights in that directory and rejects graph or encoder changes incompatible with the bundled architecture.
+- Checkpoint selection is a runtime setting for preparation and tests, never a build-time dependency. Models and Python environments remain ignored.
+- Cargo packages only explicitly included project files; the passive submodule and local environments are excluded.
 - The deployment directory contains laya.bpk, rl_agent_config.json, and tokenizer files.
-- Run cargo run --example prepare to deploy and validate the generated Burnpack in the selected model directory.
+- Run cargo run --features prepare --example prepare to convert and validate the complete Burnpack in the selected model directory. Preparation does not execute inference or training.
 - The deployed runtime does not need Python, ONNX Runtime, ONNX files, the submodule, or network access.
 - Every weight load must report no missing, unused, skipped, or failed tensor mappings.
 
@@ -110,7 +113,7 @@ Provide real labeled train.jsonl and a separate eval.jsonl; JSONL records use st
   --data train.jsonl --eval eval.jsonl --out models/laya-finetuned \
   --freeze-encoder --loss soft-ce --micro-batch 1 --grad-accum 8 --device cpu
 .venv/bin/python tools/reference.py --model-directory models/laya-finetuned --capacity
-LAYA_MODEL_DIR=models/laya-finetuned cargo run --example prepare
+LAYA_MODEL_DIR=models/laya-finetuned cargo run --features prepare --example prepare
 LAYA_MODEL_DIR=models/laya-finetuned cargo test --all-features
 LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
 .venv/bin/python tools/reference.py \
@@ -121,7 +124,7 @@ Remove --freeze-encoder for a full fine-tune; --loss rlcd selects the upstream d
 Select cuda or mps only with a compatible PyTorch build and device; Rust Vulkan availability does not establish PyTorch training support.
 Training defaults to the encoder's full sequence capacity; --max-len can explicitly select a smaller budget. Both real training and dry-run validation reject budgets beyond the encoder's capacity.
 After training/export, generate the trained checkpoint's capacity fixtures with tools/reference.py --model-directory models/laya-finetuned --capacity before running all parity tests.
-The shared parity tests select the same checkpoint directory as code generation; they never compare trained weights against the base model's answers.
+The shared parity tests select the prepared checkpoint directory at runtime; they never compare trained weights against the base model's answers.
 The [synthetic training](../tests/fixtures/train-smoke.jsonl) and [evaluation](../tests/fixtures/eval-smoke.jsonl) fixtures exercise training and artifact conversion only.
 A tiny smoke dataset is not evidence of useful task accuracy or fitted calibration.
 

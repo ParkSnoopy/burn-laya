@@ -7,7 +7,13 @@
 use serde_json::Value;
 
 pub fn model_directory() -> &'static std::path::Path {
-    std::path::Path::new(env!("LAYA_MODEL_DIR"))
+    static DIRECTORY: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DIRECTORY.get_or_init(|| {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(std::env::var_os("LAYA_MODEL_DIR").unwrap_or_else(|| "models/laya".into()))
+            .canonicalize()
+            .unwrap()
+    })
 }
 
 pub fn reference() -> String {

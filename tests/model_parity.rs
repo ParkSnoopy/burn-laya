@@ -34,7 +34,7 @@ struct Case {
 fn full_checkpoint_matches_pytorch() {
     let fixture: Fixture = serde_json::from_str(&common::reference()).unwrap();
     let device = Device::flex();
-    let model = Model::from_file(concat!(env!("OUT_DIR"), "/model/laya.bpk"), &device);
+    let model = Model::from_file(common::model_directory().join("laya.bpk"), &device);
     for case in fixture.cases {
         let (logits, act_logits) = infer(&model, &case.inputs, &device).unwrap();
         for (name, actual, expected) in [

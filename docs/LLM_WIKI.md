@@ -20,10 +20,10 @@ Inspect published package sources for compatibility work, never replace the isol
 | JSON CLI | [main.rs](../src/inference/main.rs) | Parse a request file, select a device, emit a Prediction, and fail on invalid input or an unavailable backend. |
 | Input encoding | [input.rs](../src/inference/input.rs) | Typed questions, tokenizer assets, rendering, token budgets, option markers, padded batches, and truncation diagnostics. |
 | Tensor boundary | [model.rs](../src/inference/model.rs) | Include generated code, validate input tensors, execute both output heads, and reject nonfinite outputs. |
-| Attention execution | [attention.rs](../src/inference/attention.rs), [build.rs](../build.rs) | Use the supported ONNX Attention override and exact query/batch tiling to avoid oversized dense score buffers without dropping context. |
+| Attention execution | [attention.rs](../src/inference/attention.rs), [prepare.rs](../src/inference/prepare.rs) | Use the supported ONNX Attention override and exact query/batch tiling to avoid oversized dense score buffers without dropping context. |
 | Answer decoding | [output.rs](../src/inference/output.rs) | Checkpoint compatibility, temperatures, ordered option probabilities, typed answers, and action probability. |
 | Runtime assembly | [agent.rs](../src/inference/agent.rs) | Load complete weights and tokenizer/configuration assets, then connect encoding, inference, and decoding. |
-| Graph conversion | [build.rs](../build.rs), [prepare example](../examples/prepare.rs) | Generate matching source and Burnpack under OUT_DIR, then deploy and validate the selected Burnpack. |
+| Graph conversion | [prepare.rs](../src/inference/prepare.rs), [prepare example](../examples/prepare.rs) | Explicitly convert and validate the selected Burnpack with the prepare feature; normal compilation uses bundled generated source without local model assets. |
 | Python reference | [reference.py](../tools/reference.py) | Verify checkpoint identity, export ONNX, compare real FP32 outputs, and regenerate frozen fixtures. |
 | Python training | [train.py](../tools/train.py) | Validate the local base/output boundary, delegate training, record provenance, and export the trained checkpoint. |
 
@@ -32,21 +32,18 @@ local PyTorch checkpoint + tokenizer/configuration
           | tools/reference.py --export
           v
 ONNX graph + external weights + frozen reference fixtures
-          | build.rs / burn-onnx
+          | cargo run --features prepare --example prepare
           v
-generated Burn source + Burnpack in OUT_DIR
-          | cargo run --example prepare
-          v
-deployment directory: laya.bpk + configuration + tokenizer
+deployment directory: laya.bpk + verified source + configuration + tokenizer
           | Agent: encode -> forward -> decode
           v
 typed answers + input diagnostics
 ```
 
-The build-time graph and runtime weights must describe the same architecture.
-Do not copy a Burnpack from an unrelated Cargo build directory or reuse generated source after replacing a graph without rebuilding.
+The bundled graph and runtime weights must describe the same architecture. Preparation rejects encoder bounds or generated graph source that differ from the bundled architecture.
+Normal compilation, including all features and Cargo package verification, needs no model files or Python. The package excludes the passive submodule and local model/environment directories.
 Deployment needs laya.bpk, rl_agent_config.json, and tokenizer/; it does not need Python, ONNX Runtime, ONNX files, encoder/, network access, or the submodule.
-Cargo conversion and Python training still need their respective source artifacts.
+Explicit preparation and Python training still need their respective source artifacts. Model::default loads laya.bpk from the working directory; use Agent::load with an explicit checkpoint directory for deployment.
 
 ## Request and result contract
 
@@ -83,7 +80,7 @@ For a single option, both confidence values are 1.0 by definition, not evidence 
 Numerical answer fields are rounded to four decimal places; usage.output_tokens is zero because this model does not generate text.
 
 The graph supports ModernBERT-large, two decision-head layers, sequential options, and two action outputs.
-Sequence and vocabulary bounds are derived from encoder/config.json during graph conversion: 8192 tokens and 50368 vocabulary entries for the English checkpoint.
+Bundled sequence and vocabulary bounds were derived from the verified encoder/config.json: 8192 tokens and 50368 vocabulary entries for the English checkpoint; explicit preparation checks that selected encoder bounds match.
 Inference uses the full encoder capacity rather than the checkpoint's training max_len. No port-only question-row or option-count caps remain; markers must fit the sequence and execution requires sufficient memory.
 Question-head and individual option-description cuts preserve published Laya's token-assembly rules.
 State truncation is reported, and usage.options identifies questions whose option descriptions collapse to identical token spans.
@@ -107,7 +104,7 @@ uv pip install --python .venv/bin/python 'laya[onnx]==0.4.6'
   --revision 1c5edc17a7acd8701df6fc341c0d179f1c62c982 --local-dir models/laya
 .venv/bin/python tools/reference.py --export
 .venv/bin/python tools/reference.py --capacity
-cargo run --example prepare
+cargo run --features prepare --example prepare
 cargo build --release
 target/release/burn-laya models/laya tests/fixtures/requests.json cpu
 ```
@@ -143,7 +140,7 @@ Use separate real training and evaluation files; the [training smoke fixture](..
   --data train.jsonl --eval eval.jsonl --out models/laya-finetuned \
   --freeze-encoder --loss soft-ce --micro-batch 1 --grad-accum 8 --device cpu
 .venv/bin/python tools/reference.py --model-directory models/laya-finetuned --capacity
-LAYA_MODEL_DIR=models/laya-finetuned cargo run --example prepare
+LAYA_MODEL_DIR=models/laya-finetuned cargo run --features prepare --example prepare
 LAYA_MODEL_DIR=models/laya-finetuned cargo test
 LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
 .venv/bin/python tools/reference.py \
@@ -154,7 +151,7 @@ The final binary comparison needs an available integrated Vulkan GPU; on CPU-onl
 --base selects another local supported checkpoint; remote base IDs are rejected by the wrapper.
 --out must not already exist or contain/be contained by the base directory; failed training/export may leave a partial output directory, so inspect it and choose a new output path for a retry.
 The base weight digest is checked before and after training, and the new checkpoint records its own weight digest, reference version, and base digest.
-Each trained checkpoint owns checkpoint.json and reference.json beside its weights; changing LAYA_MODEL_DIR selects its graph and its fixtures together.
+Each trained checkpoint owns checkpoint.json and reference.json beside its weights; LAYA_MODEL_DIR selects its graph for explicit preparation and its deployed weights and fixtures for tests at runtime, without changing normal compilation.
 Export failure preserves trained weights but is not preparation success; Rust deployment begins only after export/parity succeeds.
 Remove --freeze-encoder for a full fine-tune, or select --loss rlcd for the upstream default objective.
 Training defaults to the encoder's full capacity; --max-len explicitly selects a smaller budget. Real and dry-run training validate budgets against that capacity; unsupported architecture/layout/action shapes fail instead of silently widening support.

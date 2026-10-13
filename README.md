@@ -10,7 +10,7 @@ The Cargo package and executable are `burn-laya`; the Rust crate is `burn_laya`.
 - [AI-agent guide](docs/LLM_WIKI.md) maps code ownership, invariants, and verification workflows.
 - [Training workflow](tools/train.py) uses published `laya==0.4.6` and exports each trained checkpoint separately.
 - [Reference workflow](tools/reference.py) validates ONNX output against the selected checkpoint's PyTorch model.
-- [Burn preparation](examples/prepare.rs) deploys the complete weights generated for the selected model directory.
+- [Burn preparation](examples/prepare.rs) explicitly converts ONNX and validates complete weights with the optional `prepare` feature; normal compilation needs no model files or Python.
 - [Python checks](docs/LLM_WIKI.md#python-linting) run Ruff and Flake8 with wemake-python-styleguide in isolated uvx environments.
 - The `laya` submodule is a passive parity reference, never a build, training, runtime, or validation dependency.
 
