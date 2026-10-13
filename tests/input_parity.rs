@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use laya::input::{Batch, InputBuilder, Request, Row};
+use burn_laya::input::{Batch, InputBuilder, Request, Row};
 use serde::Deserialize;
 mod common;
 
@@ -29,7 +29,7 @@ fn input_tensors_match_python() {
     let config = common::config();
     let builder = InputBuilder::load(
         common::model_directory(),
-        laya::model::MAX_SEQUENCE_LENGTH,
+        burn_laya::model::MAX_SEQUENCE_LENGTH,
         config.head_max_len,
     )
     .unwrap();
@@ -45,7 +45,7 @@ fn invalid_requests_fail_before_inference() {
     let config = common::config();
     let builder = InputBuilder::load(
         common::model_directory(),
-        laya::model::MAX_SEQUENCE_LENGTH,
+        burn_laya::model::MAX_SEQUENCE_LENGTH,
         config.head_max_len,
     )
     .unwrap();
@@ -69,7 +69,7 @@ fn invalid_requests_fail_before_inference() {
     assert!(
         InputBuilder::load(
             common::model_directory(),
-            laya::model::MAX_SEQUENCE_LENGTH,
+            burn_laya::model::MAX_SEQUENCE_LENGTH,
             192
         )
         .is_ok()
@@ -77,7 +77,7 @@ fn invalid_requests_fail_before_inference() {
     assert!(
         InputBuilder::load(
             Path::new("models/laya"),
-            laya::model::MAX_SEQUENCE_LENGTH + 1,
+            burn_laya::model::MAX_SEQUENCE_LENGTH + 1,
             192
         )
         .is_err()

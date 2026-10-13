@@ -1,7 +1,8 @@
-# Laya on Burn
+# burn-laya
 
 ## Runtime contract
 
+- The Cargo package and executable are burn-laya; the Rust crate is burn_laya. Upstream Laya package, submodule, and model artifact names remain unchanged.
 - The initial runtime supports the English ModernBERT-large checkpoint with two decision-head layers and two action outputs.
 - A request contains a text state and an ordered map of questions.
 - Question variants are choice, score, and noul. Criteria descriptions and score levels are strings.
@@ -84,7 +85,7 @@
 - Run tools/reference.py --export to prepare the ONNX graph and regenerate real checkpoint fixtures.
 - Run tools/reference.py --capacity to generate separate native-capacity fixtures against the prepared graph; this performs real long-sequence inference, not just shape validation.
 - Run tools/reference.py without --export to compare the existing graph against the published reference and regenerate fixtures.
-- Run tools/reference.py --binary target/release/laya to compare the CPU and integrated Vulkan CLI against frozen answers without importing the Python model.
+- Run tools/reference.py --binary target/release/burn-laya to compare the CPU and integrated Vulkan CLI against frozen answers without importing the Python model.
 - Pass --model-directory for a trained checkpoint. Its checkpoint.json and reference.json stay beside its weights, separate from the base fixtures.
 - Cargo parity tests consume frozen fixtures and local model artifacts. They do not invoke the Python reference or require an initialized submodule.
 
@@ -113,7 +114,7 @@ LAYA_MODEL_DIR=models/laya-finetuned cargo run --example prepare
 LAYA_MODEL_DIR=models/laya-finetuned cargo test --all-features
 LAYA_MODEL_DIR=models/laya-finetuned cargo build --release --features vulkan
 .venv/bin/python tools/reference.py \
-  --model-directory models/laya-finetuned --binary target/release/laya
+  --model-directory models/laya-finetuned --binary target/release/burn-laya
 ```
 
 Remove --freeze-encoder for a full fine-tune; --loss rlcd selects the upstream default objective.

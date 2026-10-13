@@ -12,7 +12,7 @@
 use std::time::Instant;
 
 use burn::tensor::{Device, DeviceKind};
-use laya::{
+use burn_laya::{
     Request,
     input::InputBuilder,
     model::{Model, infer},
@@ -48,7 +48,7 @@ fn integrated_vulkan_matches_python() {
             .unwrap();
     let inputs = InputBuilder::load(
         directory,
-        laya::model::MAX_SEQUENCE_LENGTH,
+        burn_laya::model::MAX_SEQUENCE_LENGTH,
         config.head_max_len,
     )
     .unwrap();

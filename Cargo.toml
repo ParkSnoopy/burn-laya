@@ -1,6 +1,6 @@
 [package]
-name = "laya"
-version = "0.1.3"
+name = "burn-laya"
+version = "0.1.4"
 edition = "2024"
 description = "Typed local Laya inference on Burn with a Python fine-tuning pipeline"
 license = "GPL-3.0-only"
@@ -10,7 +10,7 @@ keywords = ["machine-learning", "inference", "burn", "laya"]
 categories = ["science"]
 
 [[bin]]
-name = "laya"
+name = "burn-laya"
 path = "src/inference/main.rs"
 
 [features]

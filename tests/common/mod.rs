@@ -26,7 +26,7 @@ pub fn fixture(name: &str) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
-pub fn config() -> laya::output::Config {
+pub fn config() -> burn_laya::output::Config {
     serde_json::from_slice(&std::fs::read(model_directory().join("rl_agent_config.json")).unwrap())
         .unwrap()
 }

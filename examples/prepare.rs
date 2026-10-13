@@ -4,7 +4,7 @@ use std::{io::Write, path::Path};
 
 use anyhow::Result;
 use burn::tensor::Device;
-use laya::Agent;
+use burn_laya::Agent;
 
 fn main() -> Result<()> {
     let directory = Path::new(env!("LAYA_MODEL_DIR"));

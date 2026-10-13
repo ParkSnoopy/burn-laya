@@ -1,7 +1,8 @@
-# Laya on Burn
+# burn-laya
 
 Typed local inference for the English Laya checkpoint, with a Python fine-tuning and ONNX export pipeline.
 The Rust runtime does not require Python.
+The Cargo package and executable are `burn-laya`; the Rust crate is `burn_laya`.
 
 ## Development contracts
 

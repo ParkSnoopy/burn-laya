@@ -4,13 +4,13 @@ use std::{env, io::Write, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use burn::tensor::Device;
-use laya::{Agent, Request};
+use burn_laya::{Agent, Request};
 
 fn main() -> Result<()> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     ensure!(
         (2..=3).contains(&arguments.len()),
-        "usage: laya MODEL_DIRECTORY REQUEST_JSON [cpu|vulkan-integrated|vulkan-discrete]"
+        "usage: burn-laya MODEL_DIRECTORY REQUEST_JSON [cpu|vulkan-integrated|vulkan-discrete]"
     );
     let directory = PathBuf::from(&arguments[0]);
     let request: Request =

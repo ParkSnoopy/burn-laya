@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use burn::tensor::Device;
-use laya::{Agent, Request};
+use burn_laya::{Agent, Request};
 use serde::Deserialize;
 use serde_json::Value;
 mod common;
@@ -26,7 +26,7 @@ struct Case {
     name: String,
     request: Request,
     answers: Value,
-    items: Vec<laya::input::Row>,
+    items: Vec<burn_laya::input::Row>,
 }
 
 #[test]

@@ -9,7 +9,7 @@
 )]
 
 use burn::tensor::Device;
-use laya::{
+use burn_laya::{
     Request,
     input::{Batch, InputBuilder, Row},
     model::{MAX_SEQUENCE_LENGTH, Model, infer},
@@ -57,7 +57,7 @@ fn check_capacity(device: &Device) {
         let (logits, actions) = infer(&model, &batch, device).unwrap();
         let logit_error = common::assert_logits(&logits, &case.logits);
         let action_error = common::assert_logits(&actions, &case.act_logits);
-        let answers = laya::output::decode(&config, &case.request, &logits, &actions).unwrap();
+        let answers = burn_laya::output::decode(&config, &case.request, &logits, &actions).unwrap();
         common::assert_answers(&serde_json::to_value(answers).unwrap(), &case.answers);
         println!(
             "{}: native capacity matches Python; logits={logit_error}, actions={action_error}",
